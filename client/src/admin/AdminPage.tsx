@@ -302,14 +302,26 @@ export default function AdminPage() {
     const rows = (r.rows || []) as Prize[];
     const filtered = showInactive ? rows : rows.filter((p) => isActiveRow(p));
 
-    filtered.sort((a: any, b: any) => {
-      const pa = Number(safeStr(a.priority) || 999999);
-      const pb = Number(safeStr(b.priority) || 999999);
-      if (pa !== pb) return pa - pb;
-      const ia = safeStr(a.prize_id || a.id || "");
-      const ib = safeStr(b.prize_id || b.id || "");
-      return ia.localeCompare(ib);
-    });
+    // ✅ ถ้ามี priority ให้เรียงตาม priority ก่อน
+    // ถ้าไม่มี priority (ว่างหมด) → เรียงตาม prize_id เป็น "ตัวเลข" รักษาลำดับชีท
+    const hasPriority = filtered.some((p: any) => safeStr((p as any).priority).trim() !== "");
+    if (hasPriority) {
+      filtered.sort((a: any, b: any) => {
+        const pa = Number(safeStr(a.priority) || 999999);
+        const pb = Number(safeStr(b.priority) || 999999);
+        if (pa !== pb) return pa - pb;
+        const ia = Number(safeStr(a.prize_id || a.id || "0")) || 0;
+        const ib = Number(safeStr(b.prize_id || b.id || "0")) || 0;
+        return ia - ib;
+      });
+    } else {
+      // ไม่มี priority → เรียงตาม prize_id เป็นตัวเลข (ลำดับจากชีท)
+      filtered.sort((a: any, b: any) => {
+        const ia = Number(safeStr(a.prize_id || a.id || "0")) || 0;
+        const ib = Number(safeStr(b.prize_id || b.id || "0")) || 0;
+        return ia - ib;
+      });
+    }
 
     setPrizes(filtered);
 
