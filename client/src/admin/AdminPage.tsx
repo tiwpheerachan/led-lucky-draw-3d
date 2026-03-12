@@ -116,6 +116,19 @@ export default function AdminPage() {
     }
   });
 
+  // ✅ ติดตาม participant_id ของคนที่ได้รางวัลแล้ว — ใช้ตัดสิทธิ์โหมด exclude
+  const [pastWinnerIds, setPastWinnerIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ld_past_winner_ids") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const pastWinnerIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    pastWinnerIdsRef.current = pastWinnerIds;
+  }, [pastWinnerIds]);
+
   // catalog filters
   const [qPrize, setQPrize] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -243,6 +256,23 @@ export default function AdminPage() {
             try { localStorage.setItem("ld_drawn_map", JSON.stringify(next)); } catch {}
             return next;
           });
+        }
+        // ✅ บันทึก participant_id ของผู้ชนะ เพื่อตัดสิทธิ์ใน exclude mode
+        if (winner) {
+          const winnerId = safeStr(
+            (winner as any).participant_id ||
+            (winner as any).id ||
+            (winner as any).name ||
+            ""
+          );
+          if (winnerId) {
+            setPastWinnerIds((prev) => {
+              if (prev.includes(winnerId)) return prev;
+              const next = [...prev, winnerId];
+              try { localStorage.setItem("ld_past_winner_ids", JSON.stringify(next)); } catch {}
+              return next;
+            });
+          }
         }
       }
       // ✅ RESET — ล้าง drawn map
@@ -383,7 +413,10 @@ export default function AdminPage() {
 
   function pressStart() {
     realtime.send("SET_UI", { ui: { showPrizePreview: false } });
-    realtime.send("START_SPIN");
+    // ✅ ส่ง excludedIds เสมอ — server จะใช้ถ้า mode=exclude
+    realtime.send("START_SPIN", {
+      excludedIds: pastWinnerIdsRef.current,
+    });
     playSound("start");
   }
 
@@ -396,6 +429,9 @@ export default function AdminPage() {
     realtime.send("RESET");
     setDrawnMap({});
     localStorage.removeItem("ld_drawn_map");
+    // ✅ ล้าง pastWinnerIds ด้วย
+    setPastWinnerIds([]);
+    localStorage.removeItem("ld_past_winner_ids");
     playSound("reset");
   }
 
@@ -451,7 +487,8 @@ export default function AdminPage() {
   }
 
   function setMode(mode: "exclude" | "repeat") {
-    realtime.send("SET_MODE", { mode });
+    // ✅ ส่ง excludedIds พร้อมกับ mode เพื่อให้ server อัปเดต pool ทันที
+    realtime.send("SET_MODE", { mode, excludedIds: pastWinnerIdsRef.current });
     playSound("click");
   }
 
@@ -504,6 +541,13 @@ export default function AdminPage() {
                 </div>
                 <div style={S.modeCompactHint}>{state?.mode === "repeat" ? "ไม่ตัดชื่อ (สุ่มซ้ำได้)" : "ตัดชื่อคนที่ได้แล้ว"}</div>
               </div>
+
+              {/* ✅ แสดงจำนวนคนถูกตัดสิทธิ์ */}
+              {state?.mode !== "repeat" && pastWinnerIds.length > 0 && (
+                <div style={{ marginTop: 6, padding: "5px 10px", borderRadius: 999, background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.22)", fontSize: 12, fontWeight: 800, color: "rgba(185,28,28,.90)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  🚫 ตัดสิทธิ์แล้ว {pastWinnerIds.length} คน
+                </div>
+              )}
 
               <div style={S.modeSwitchRow}>
                 <button type="button" onClick={() => setMode("exclude")} disabled={isSpinning}
