@@ -578,6 +578,35 @@ export default function AdminPage() {
               </div>
 
               <div style={S.readyHint}>เลือกของรางวัล → กด Preview/Start/Stop ได้ทันที</div>
+
+              {/* ✅ RESET — อยู่ที่ header กันกดพลาด + มี confirm */}
+              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  disabled={!connected || isSpinning}
+                  onClick={() => {
+                    if (!window.confirm("⚠️ รีเซ็ตทุกอย่าง?\n\nจะล้างสถานะ ล้างเช็ค และล้างรายชื่อผู้ที่ได้รับรางวัลทั้งหมด\nทุกคนจะมีสิทธิ์สุ่มใหม่")) return;
+                    pressReset();
+                  }}
+                  style={{
+                    padding: "7px 18px",
+                    borderRadius: 8,
+                    border: "1.5px solid rgba(239,68,68,.40)",
+                    background: "rgba(254,242,242,1)",
+                    color: "rgba(185,28,28,.90)",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: (!connected || isSpinning) ? "not-allowed" : "pointer",
+                    opacity: (!connected || isSpinning) ? 0.45 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                  title="รีเซ็ตสถานะทั้งหมด — ทุกคนมีสิทธิ์สุ่มใหม่"
+                >
+                  🔄 RESET (重置)
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -900,13 +929,6 @@ export default function AdminPage() {
                   danger
                   disabled={!connected || !isSpinning || !selectedPrize}
                   onClick={pressStop}
-                />
-                <DockBtn
-                  label="RESET"
-                  labelCN="重置"
-                  sub="รีเซ็ตสถานะ + ล้างเช็ค"
-                  disabled={!connected}
-                  onClick={pressReset}
                 />
               </div>
               {!selectedPrize && <div style={S.warnText}>⚠️ กรุณาเลือกรางวัลก่อน</div>}
