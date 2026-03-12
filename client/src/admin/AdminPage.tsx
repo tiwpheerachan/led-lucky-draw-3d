@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// client/src/pages/AdminPage.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { realtime } from "../shared/ws";
 import { getJSON, SheetPayload, Prize, RealtimeState, SERVER_HTTP } from "../shared/api";
 
@@ -26,6 +27,25 @@ function prettyServerLabel() {
   } catch {
     return SERVER_HTTP;
   }
+}
+
+/* =========================
+   Sound (simple + safe)
+   - Put files in /public/sounds/...
+   - You can rename paths below as you like
+========================= */
+const SOUND = {
+  click: "/sounds/ui-click.mp3",
+  previewOn: "/sounds/ui-preview-on.mp3",
+  previewOff: "/sounds/ui-preview-off.mp3",
+  start: "/sounds/ui-start.mp3",
+  stop: "/sounds/ui-stop.mp3",
+  reset: "/sounds/ui-reset.mp3",
+};
+
+function clamp01(n: number) {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(1, n));
 }
 
 /* =========================
@@ -103,6 +123,21 @@ export default function AdminPage() {
   const [apActive, setApActive] = useState("TRUE");
   const [apPriority, setApPriority] = useState("");
 
+  // ✅ Sound controls (persist)
+  const [soundOn, setSoundOn] = useState<boolean>(() => {
+    const raw = localStorage.getItem("ld_sound_on");
+    if (raw === null) return true;
+    return raw === "true";
+  });
+  const [volume, setVolume] = useState<number>(() => {
+    const raw = Number(localStorage.getItem("ld_sound_volume") ?? "0.7");
+    return clamp01(raw);
+  });
+
+  // ✅ Keep a tiny in-memory audio map
+  const audioRef = useRef<Record<string, HTMLAudioElement | null>>({});
+  const lastSpinningRef = useRef<boolean>(false);
+
   const selectedPrize = useMemo(() => {
     const byId = prizes.find((p: any) => safeStr(p.prize_id || p.id) === selectedPrizeId);
     return byId || null;
@@ -116,6 +151,52 @@ export default function AdminPage() {
 
   const isSpinning = !!state?.spinning;
   const previewOpen = !!state?.ui?.showPrizePreview;
+
+  // persist sound settings
+  useEffect(() => {
+    localStorage.setItem("ld_sound_on", String(!!soundOn));
+  }, [soundOn]);
+  useEffect(() => {
+    localStorage.setItem("ld_sound_volume", String(clamp01(volume)));
+    // apply volume to base audio objects (if any)
+    const map = audioRef.current || {};
+    Object.values(map).forEach((a) => {
+      try {
+        if (a) a.volume = clamp01(volume);
+      } catch {}
+    });
+  }, [volume]);
+
+  // preload audio once
+  useEffect(() => {
+    const map: Record<string, HTMLAudioElement> = {};
+    (Object.keys(SOUND) as Array<keyof typeof SOUND>).forEach((k) => {
+      try {
+        const a = new Audio(SOUND[k]);
+        a.preload = "auto";
+        a.volume = clamp01(volume);
+        map[k] = a;
+      } catch {}
+    });
+    audioRef.current = map;
+    // no cleanup needed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function playSound(name: keyof typeof SOUND) {
+    if (!soundOn) return;
+    const base = audioRef.current?.[name];
+    if (!base) return;
+
+    try {
+      // clone for overlap + avoid "play() interrupted" issues
+      const a = base.cloneNode(true) as HTMLAudioElement;
+      a.volume = clamp01(volume);
+      a.currentTime = 0;
+      // play best-effort (autoplay may be blocked until user interacts)
+      void a.play().catch(() => {});
+    } catch {}
+  }
 
   /* =========================
      Realtime connect
@@ -131,6 +212,16 @@ export default function AdminPage() {
     });
     return off;
   }, []);
+
+  // Optional: react to spin state changes from server and play stop/start sound once
+  useEffect(() => {
+    const prev = lastSpinningRef.current;
+    const now = !!state?.spinning;
+    if (!prev && now) playSound("start");
+    if (prev && !now) playSound("stop");
+    lastSpinningRef.current = now;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.spinning]);
 
   /* =========================
      Load participants cols (mapping) — auto guess
@@ -223,6 +314,10 @@ export default function AdminPage() {
         previewHint: "เตรียมพร้อม… กด START เพื่อเริ่มสุ่ม",
       },
     });
+
+    // ✅ sound
+    playSound("click");
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPrizeId]);
 
@@ -230,10 +325,12 @@ export default function AdminPage() {
     const p: any = (prizes as any[])[i1 - 1];
     if (!p) return;
     setSelectedPrizeId(safeStr(p.prize_id || p.id));
+    playSound("click");
   }
 
   function closePreview() {
     realtime.send("SET_UI", { ui: { showPrizePreview: false } });
+    playSound("previewOff");
   }
 
   function togglePreview() {
@@ -245,20 +342,24 @@ export default function AdminPage() {
         previewHint: "กด START เพื่อเริ่มสุ่ม",
       },
     });
+    playSound(open ? "previewOff" : "previewOn");
   }
 
   function pressStart() {
     realtime.send("SET_UI", { ui: { showPrizePreview: false } });
     realtime.send("START_SPIN");
+    playSound("start");
   }
 
   function pressStop() {
     // ✅ mapping/operator ยังส่งเหมือนเดิม (แค่ไม่โชว์ UI)
     realtime.send("STOP_SPIN", { mapping, operator });
+    playSound("stop");
   }
 
   function pressReset() {
     realtime.send("RESET");
+    playSound("reset");
   }
 
   const selected: any = selectedPrize as any;
@@ -310,6 +411,7 @@ export default function AdminPage() {
 
     setAddOpen(false);
     await loadPrizes();
+    playSound("click");
   }
 
   function resetAddForm() {
@@ -319,10 +421,12 @@ export default function AdminPage() {
     setApQty("1");
     setApActive("TRUE");
     setApPriority("");
+    playSound("click");
   }
 
   function setMode(mode: "exclude" | "repeat") {
     realtime.send("SET_MODE", { mode });
+    playSound("click");
   }
 
   return (
@@ -358,9 +462,7 @@ export default function AdminPage() {
                   {isSpinning ? "SPINNING" : "READY"}
                 </div>
 
-                <div style={S.modeCompactHint}>
-                  {state?.mode === "repeat" ? "ไม่ตัดชื่อ (สุ่มซ้ำได้)" : "ตัดชื่อคนที่ได้แล้ว"}
-                </div>
+                <div style={S.modeCompactHint}>{state?.mode === "repeat" ? "ไม่ตัดชื่อ (สุ่มซ้ำได้)" : "ตัดชื่อคนที่ได้แล้ว"}</div>
               </div>
 
               <div style={S.modeSwitchRow}>
@@ -382,6 +484,37 @@ export default function AdminPage() {
                 </button>
               </div>
 
+              {/* ✅ SOUND CONTROLS */}
+              <div style={S.soundRow}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSoundOn((v) => !v);
+                    // if enabling -> tiny click (may be blocked until user gesture; this is a gesture)
+                    if (!soundOn) playSound("click");
+                  }}
+                  style={{ ...S.soundToggle, ...(soundOn ? S.soundToggleOn : null) }}
+                  title="เปิด/ปิดเสียง"
+                >
+                  {soundOn ? "🔊 Sound On" : "🔇 Muted"}
+                </button>
+
+                <div style={S.soundRight}>
+                  <div style={S.soundLabel}>Volume</div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(clamp01(volume) * 100)}
+                    onChange={(e) => setVolume(clamp01(Number(e.target.value) / 100))}
+                    style={S.soundRange}
+                    aria-label="Volume"
+                  />
+                  <div style={S.soundPct}>{Math.round(clamp01(volume) * 100)}%</div>
+                </div>
+              </div>
+
               <div style={S.readyHint}>เลือกของรางวัล → กด Preview/Start/Stop ได้ทันที</div>
             </div>
           </div>
@@ -391,7 +524,10 @@ export default function AdminPage() {
         <div style={S.addWrap}>
           <button
             type="button"
-            onClick={() => setAddOpen((v) => !v)}
+            onClick={() => {
+              setAddOpen((v) => !v);
+              playSound("click");
+            }}
             style={{ ...S.addToggle, ...(addOpen ? S.addToggleOn : null) }}
             aria-expanded={addOpen}
           >
@@ -410,6 +546,7 @@ export default function AdminPage() {
                 onClick={(e) => {
                   e.stopPropagation();
                   loadPrizes();
+                  playSound("click");
                 }}
                 disabled={isSpinning}
               >
@@ -491,9 +628,7 @@ export default function AdminPage() {
                 <div style={S.addPreview}>
                   <div style={S.previewTop}>
                     <div style={S.h3}>Preview</div>
-                    <span style={{ ...S.tag, ...(apActive === "TRUE" ? S.tagOk : S.tagOff) }}>
-                      {apActive === "TRUE" ? "ACTIVE" : "INACTIVE"}
-                    </span>
+                    <span style={{ ...S.tag, ...(apActive === "TRUE" ? S.tagOk : S.tagOff) }}>{apActive === "TRUE" ? "ACTIVE" : "INACTIVE"}</span>
                   </div>
 
                   <div style={S.previewCard}>
@@ -549,10 +684,21 @@ export default function AdminPage() {
                 <div style={S.p}>กดเลขเพื่อเลือก · ระบบจะส่งไป Presenter และเปิด Preview ให้อัตโนมัติ</div>
               </div>
               <div style={S.topActions}>
-                <button style={S.btnGhost} onClick={loadPrizes} disabled={isSpinning}>
+                <button
+                  style={S.btnGhost}
+                  onClick={() => {
+                    loadPrizes();
+                    playSound("click");
+                  }}
+                  disabled={isSpinning}
+                >
                   ↻ Refresh
                 </button>
-                <button style={{ ...S.btn, ...(previewOpen ? S.btnOn : null) }} onClick={togglePreview} disabled={!selectedPrize}>
+                <button
+                  style={{ ...S.btn, ...(previewOpen ? S.btnOn : null) }}
+                  onClick={togglePreview}
+                  disabled={!selectedPrize}
+                >
                   👁 Preview
                 </button>
                 <button style={S.btnGhost} onClick={closePreview}>
@@ -600,15 +746,16 @@ export default function AdminPage() {
                 <div style={S.selectedMiniActions}>
                   <button
                     style={{ ...S.btn, ...(previewOpen ? S.btnOn : null) }}
-                    onClick={() =>
+                    onClick={() => {
                       realtime.send("SET_UI", {
                         ui: {
                           showPrizePreview: true,
                           selectedPrizeIndex: selectedPrizeIndex ?? undefined,
                           previewHint: "เตรียมพร้อม… กด START เพื่อเริ่มสุ่ม",
                         },
-                      })
-                    }
+                      });
+                      playSound("previewOn");
+                    }}
                     disabled={!selectedPrize}
                   >
                     📺 โชว์ Preview เต็มจอ
@@ -644,7 +791,10 @@ export default function AdminPage() {
                 <input style={S.inputWide} value={qPrize} onChange={(e) => setQPrize(e.target.value)} placeholder="ค้นหา (ชื่อ / id / priority)" />
                 <button
                   style={{ ...S.btnGhost, ...(showInactive ? S.btnGhostOn : null) }}
-                  onClick={() => setShowInactive((v) => !v)}
+                  onClick={() => {
+                    setShowInactive((v) => !v);
+                    playSound("click");
+                  }}
                   title="แสดงรางวัล inactive ด้วย"
                 >
                   {showInactive ? "✓ Show Inactive" : "Show Inactive"}
@@ -705,7 +855,10 @@ export default function AdminPage() {
                       <div style={{ display: "flex", justifyContent: "flex-end" }}>
                         <button
                           style={{ ...S.btnMini, ...(isSel ? S.btnMiniOn : null) }}
-                          onClick={() => setSelectedPrizeId(safeStr(p.prize_id || p.id))}
+                          onClick={() => {
+                            setSelectedPrizeId(safeStr(p.prize_id || p.id));
+                            playSound("click");
+                          }}
                           disabled={isSpinning}
                         >
                           {isSel ? "Selected" : "Select"}
@@ -908,6 +1061,39 @@ const S: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(16,185,129,.40)",
     background: "linear-gradient(180deg, rgba(16,185,129,.14), rgba(255,255,255,.82))",
   },
+
+  // ✅ SOUND UI
+  soundRow: {
+    marginTop: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+    borderRadius: 16,
+    border: "1px solid rgba(15,23,42,.08)",
+    background: "rgba(255,255,255,.70)",
+    padding: "10px 10px",
+  },
+  soundToggle: {
+    height: 38,
+    padding: "0 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(15,23,42,.10)",
+    background: "rgba(255,255,255,.86)",
+    color: "rgba(15,23,42,.88)",
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 18px 60px -52px rgba(15,23,42,.22)",
+  },
+  soundToggleOn: {
+    border: "1px solid rgba(16,185,129,.35)",
+    background: "linear-gradient(180deg, rgba(16,185,129,.12), rgba(255,255,255,.86))",
+  },
+  soundRight: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" },
+  soundLabel: { fontSize: 12, fontWeight: 900, color: "rgba(71,85,105,.95)" },
+  soundRange: { width: 170 },
+  soundPct: { fontSize: 12, fontWeight: 900, color: "rgba(15,23,42,.78)", minWidth: 42, textAlign: "right" },
 
   readyHint: { marginTop: 10, fontSize: 12, fontWeight: 700, color: "rgba(71,85,105,.95)" },
 
