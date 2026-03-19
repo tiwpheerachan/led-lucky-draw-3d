@@ -424,6 +424,31 @@ export default function AdminPage() {
       <style>{CSS}</style>
 
       <div style={S.shell}>
+        {/* ================= RESET DANGER ZONE (top) ================= */}
+        <div style={S.resetBar}>
+          <div style={S.resetBarLeft}>
+            <span style={S.resetBarIcon}>⚠️</span>
+            <div>
+              <div style={S.resetBarTitle}>RESET <span style={{ opacity: 0.55, fontSize: 13 }}>重置</span></div>
+              <div style={S.resetBarSub}>รีเซ็ตสถานะทั้งหมด — ล้างผู้ชนะทุกรางวัล</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            style={{
+              ...S.resetBarBtn,
+              ...(isSpinning || !connected ? S.disabled : null),
+            }}
+            disabled={isSpinning || !connected}
+            onClick={() => {
+              if (window.confirm("รีเซ็ตสถานะทั้งหมด? ผู้ชนะทุกรางวัลจะถูกล้าง")) {
+                pressReset();
+              }
+            }}>
+            RESET (重置)
+          </button>
+        </div>
+
         {/* ================= Header ================= */}
         <div style={S.header}>
           <div style={S.headerLeft}>
@@ -889,10 +914,10 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* ✅ ACTION DOCK — เพิ่มคำจีน */}
+            {/* ✅ ACTION DOCK — PREVIEW / START / STOP */}
             <div style={S.actionDockWrap}>
               <div style={S.actionDockTitle}>ACTION 操作</div>
-              <div style={S.actionDockGrid}>
+              <div style={{ ...S.actionDockGrid, gridTemplateColumns: "repeat(3, 1fr)" }}>
                 <DockBtn
                   label="PREVIEW"
                   labelCN="预览"
@@ -916,13 +941,6 @@ export default function AdminPage() {
                   danger
                   disabled={!connected || !isSpinning || !selectedPrize}
                   onClick={pressStop}
-                />
-                <DockBtn
-                  label="RESET"
-                  labelCN="重置"
-                  sub="รีเซ็ตสถานะ + ล้างเช็ค"
-                  disabled={!connected}
-                  onClick={pressReset}
                 />
               </div>
               {!selectedPrize && <div style={S.warnText}>⚠️ กรุณาเลือกรางวัลก่อน</div>}
@@ -1143,4 +1161,37 @@ const S: Record<string, React.CSSProperties> = {
   previewVal: { fontSize: 12, fontWeight: 900, color: "rgba(15,23,42,.88)" },
   previewTip: { marginTop: 10, color: "rgba(71,85,105,.92)", fontSize: 12, fontWeight: 700 },
   disabled: { opacity: 0.55, cursor: "not-allowed", boxShadow: "none" },
+  // ✅ RESET danger bar — top of page, isolated
+  resetBar: {
+    marginBottom: 10,
+    borderRadius: 18,
+    border: "1.5px solid rgba(239,68,68,.30)",
+    background: "rgba(255,245,245,.90)",
+    boxShadow: "0 4px 24px -12px rgba(239,68,68,.18)",
+    padding: "10px 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    flexWrap: "wrap" as const,
+    backdropFilter: "blur(10px)",
+  },
+  resetBarLeft: { display: "flex", alignItems: "center", gap: 12 },
+  resetBarIcon: { fontSize: 22, lineHeight: 1 },
+  resetBarTitle: { fontSize: 15, fontWeight: 950, color: "rgba(180,30,30,1)", letterSpacing: 0.2 },
+  resetBarSub: { fontSize: 12, fontWeight: 750, color: "rgba(180,60,60,.80)", marginTop: 2 },
+  resetBarBtn: {
+    height: 46,
+    padding: "0 22px",
+    borderRadius: 999,
+    border: "1.5px solid rgba(239,68,68,.45)",
+    background: "linear-gradient(180deg, rgba(239,68,68,.18), rgba(239,68,68,.09))",
+    color: "rgba(180,30,30,1)",
+    fontWeight: 950,
+    fontSize: 14,
+    letterSpacing: 0.3,
+    cursor: "pointer",
+    boxShadow: "0 2px 12px -6px rgba(239,68,68,.30)",
+    whiteSpace: "nowrap" as const,
+  },
 };
