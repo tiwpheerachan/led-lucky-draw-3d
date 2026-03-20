@@ -232,12 +232,21 @@ async function computeWinner({ mapping, prizeId }) {
     )
   );
 
-  // ✅ ผู้ที่ได้รับรางวัลนี้ไปแล้ว (in-memory, รองรับ qty > 1)
+  // ✅ ผู้ที่ได้รับรางวัลนี้โดยเฉพาะ (per-prize, ตัดออกเสมอไม่ว่า mode จะเป็นอะไร)
   const prizeWinnerIds = new Set(
     (state.prizeWinners[prizeId] || []).map((winner) =>
       normalizeKey(winner.participant_id || winner.name || "")
     )
   );
+
+  // ✅ ผู้ที่ได้รับรางวัลใดๆ ไปแล้ว (global in-memory, ใช้ใน exclude mode)
+  const allMemoryWinnerIds = new Set();
+  Object.values(state.prizeWinners).forEach((winners) => {
+    winners.forEach((w) => {
+      const key = normalizeKey(w.participant_id || w.name || "");
+      if (key) allMemoryWinnerIds.add(key);
+    });
+  });
 
   const eligible = (p.rows || []).filter((r) => {
     const idv = normalizeKey(r[idKey]);
@@ -256,7 +265,12 @@ async function computeWinner({ mapping, prizeId }) {
       if (truthy.includes(ev)) return true;
     }
 
-    if (state.mode === "exclude") return !winnersSet.has(key);
+    if (state.mode === "exclude") {
+      // ตัดชื่อจากชีต winners_log (persistent) + in-memory ทุกรางวัล
+      if (winnersSet.has(key)) return false;
+      if (allMemoryWinnerIds.has(key)) return false;
+      return true;
+    }
     return true;
   });
 
