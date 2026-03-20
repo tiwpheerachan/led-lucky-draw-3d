@@ -111,7 +111,7 @@ export default function AdminPage() {
 
   // catalog filters
   const [qPrize, setQPrize] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
+  const [showInactive, setShowInactive] = useState(true);
 
   // Add Prize (Dropdown)
   const [addOpen, setAddOpen] = useState(false);
@@ -258,16 +258,8 @@ export default function AdminPage() {
     if (!r?.ok) return;
 
     const rows = (r.rows || []) as Prize[];
+    // ✅ เก็บลำดับตามชีตเดิม — ไม่ sort ใหม่
     const filtered = showInactive ? rows : rows.filter((p) => isActiveRow(p));
-
-    filtered.sort((a: any, b: any) => {
-      const pa = Number(safeStr(a.priority) || 999999);
-      const pb = Number(safeStr(b.priority) || 999999);
-      if (pa !== pb) return pa - pb;
-      const ia = safeStr(a.prize_id || a.id || "");
-      const ib = safeStr(b.prize_id || b.id || "");
-      return ia.localeCompare(ib);
-    });
 
     setPrizes(filtered);
 
