@@ -214,7 +214,8 @@ async function computeWinner({ mapping, prizeId }) {
     const gviz = await fetchGViz(SHEET_PARTICIPANTS);
     return gvizToRows(gviz);
   });
-  const w = await getCached("winners", async () => {
+  // ✅ ใช้ชื่อตัวแปรชัดเจน ไม่ shadow
+  const winnerSheet = await getCached("winners", async () => {
     const gviz = await fetchGViz(SHEET_WINNERS);
     return gvizToRows(gviz);
   });
@@ -225,52 +226,45 @@ async function computeWinner({ mapping, prizeId }) {
   const deptKey = mapping?.deptKey || "";
   const eligibleKey = mapping?.eligibleKey || "";
 
-  // ✅ winnersSet robust: participant_id / participantId / idKey / nameKey
-  const winnersSet = new Set(
-    (w.rows || []).map((r) =>
-      normalizeKey(firstKey(r, ["participant_id", "participantId", idKey, nameKey]))
-    )
-  );
+  // ✅ แยก set ระหว่าง id และ name ป้องกันการ cross-match ผิดพลาด
+  const excludedIds   = new Set(); // เก็บ participant_id ที่ได้รางวัลไปแล้ว
+  const excludedNames = new Set(); // เก็บ name ที่ได้รางวัลไปแล้ว
 
-  // ✅ ผู้ที่ได้รับรางวัลนี้โดยเฉพาะ (per-prize, ตัดออกเสมอไม่ว่า mode จะเป็นอะไร)
-  const prizeWinnerIds = new Set(
-    (state.prizeWinners[prizeId] || []).map((winner) =>
-      normalizeKey(winner.participant_id || winner.name || "")
-    )
-  );
+  // 1) จากชีต winners_log (persistent — รองรับ server restart)
+  (winnerSheet.rows || []).forEach((row) => {
+    const pid  = normalizeKey(firstKey(row, ["participant_id", "participantId", idKey]));
+    const nm   = normalizeKey(firstKey(row, ["name", nameKey]));
+    if (pid) excludedIds.add(pid);
+    if (nm)  excludedNames.add(nm);
+  });
 
-  // ✅ ผู้ที่ได้รับรางวัลใดๆ ไปแล้ว (global in-memory, ใช้ใน exclude mode)
-  const allMemoryWinnerIds = new Set();
-  Object.values(state.prizeWinners).forEach((winners) => {
-    winners.forEach((w) => {
-      const key = normalizeKey(w.participant_id || w.name || "");
-      if (key) allMemoryWinnerIds.add(key);
+  // 2) จาก in-memory prizeWinners ทุกรางวัล (เร็ว ไม่ต้องรอ sheet sync)
+  Object.values(state.prizeWinners).forEach((prizeWinnerList) => {
+    prizeWinnerList.forEach((winner) => {
+      const pid = normalizeKey(winner.participant_id || "");
+      const nm  = normalizeKey(winner.name || "");
+      if (pid) excludedIds.add(pid);
+      if (nm)  excludedNames.add(nm);
     });
   });
 
   const eligible = (p.rows || []).filter((r) => {
-    const idv = normalizeKey(r[idKey]);
+    const idv   = normalizeKey(r[idKey]);
     const namev = normalizeKey(r[nameKey]);
-    const key = idv || namev;
-    if (!key) return false;
+    if (!idv && !namev) return false;
 
-    // ✅ ตัดคนที่ได้รางวัลนี้ไปแล้วออกเสมอ (ไม่ว่า mode จะเป็นอะไร)
-    if (prizeId && prizeWinnerIds.has(key)) return false;
+    // ✅ ตัดออกทันที ถ้า id หรือ name ตรงกับคนที่เคยได้รางวัลแล้ว (ทุกรางวัล)
+    if (idv   && excludedIds.has(idv))     return false;
+    if (namev && excludedNames.has(namev)) return false;
 
     if (eligibleKey && r[eligibleKey] !== "" && r[eligibleKey] !== null && r[eligibleKey] !== undefined) {
       const ev = normalizeKey(r[eligibleKey]);
       const truthy = ["true", "1", "yes", "y", "ok", "ผ่าน", "มีสิทธิ์", "eligible"];
-      const falsy = ["false", "0", "no", "n", "x", "ไม่ผ่าน", "ไม่มีสิทธิ์", "ineligible"];
-      if (falsy.includes(ev)) return false;
+      const falsy  = ["false", "0", "no", "n", "x", "ไม่ผ่าน", "ไม่มีสิทธิ์", "ineligible"];
+      if (falsy.includes(ev))  return false;
       if (truthy.includes(ev)) return true;
     }
 
-    if (state.mode === "exclude") {
-      // ตัดชื่อจากชีต winners_log (persistent) + in-memory ทุกรางวัล
-      if (winnersSet.has(key)) return false;
-      if (allMemoryWinnerIds.has(key)) return false;
-      return true;
-    }
     return true;
   });
 
